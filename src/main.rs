@@ -21,6 +21,8 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     let path = Path::new(&args[1]);
+    let home_dir = env::var("USERPROFILE").unwrap();
+    let documents_path = format!("{home_dir}\\Documents");
     let mut file_queue: HashSet<String> = HashSet::new();
 
     traverse_fs(path.to_str().unwrap().to_string(), &mut file_queue);
@@ -33,7 +35,7 @@ fn main() {
         let hash = hash_file(&file);
 
         //TODO: Erase duplication of hash creation
-
+        //TODO: Delete unwrap and exception
         match map.entry(hash.clone()) {
             Entry::Occupied(entry) => {
                 let file_hash = FileHash {
@@ -62,7 +64,18 @@ fn main() {
     let since_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
     let timestamp = since_epoch.as_secs();
 
-    let mut file = File::create(format!("C:\\Users\\Usver\\Documents\\traveler\\{timestamp}.json")).unwrap();
+    let dir_name = format!("{documents_path}\\traveler\\");
+
+    if Path::new(&dir_name).exists() {
+        println!("Directory already exists");
+    } else {
+        match fs::create_dir(dir_name) {
+            Ok(()) => println!("Directory created successfully"),
+            Err(e) => println!("Error creating directory: {}", e),
+        }
+    }
+
+    let mut file = File::create(format!("{documents_path}\\traveler\\{timestamp}.json")).unwrap();
     let json = serde_json::to_string(&duplicate).expect("TODO: panic message");
     file.write_all(json.as_bytes()).expect("TODO: panic message2");
 
