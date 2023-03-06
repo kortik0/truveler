@@ -1,7 +1,6 @@
 use std::time::Instant;
-use std::path::{Path};
+use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::collections::hash_map::Entry;
 use std::env;
 use std::fs::{File, self};
 use std::io::{BufReader, Read, Write};
@@ -12,8 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FileHash {
-    path: String,
+    path: PathBuf,
     hash: String,
+    size: f64,
+    dub: Option<PathBuf>,
 }
 
 fn main() {
@@ -28,35 +29,39 @@ fn main() {
     traverse_fs(path.to_str().unwrap().to_string(), &mut file_queue);
 
     let mut map: HashMap<String, FileHash> = HashMap::new();
-    let mut duplicate: Vec<FileHash> = Vec::new();
+    let mut duplicates: Vec<FileHash> = Vec::new();
 
     for file in file_queue {
-        let file = &file;
-        let hash = hash_file(&file);
+        let path = &file;
 
-        //TODO: Erase duplication of hash creation
-        //TODO: Delete unwrap and exception
-        match map.entry(hash.clone()) {
-            Entry::Occupied(entry) => {
-                let file_hash = FileHash {
-                    path: String::from(file),
-                    hash: String::from(hash),
-                };
+        let hash = hash_file(path);
 
-                duplicate.push(file_hash);
-                println!("\x1b[0;33mWARNING: There is a duplicate file: {:?}\x1b[0;39m", file);
-                println!("\t CACHE: {}", entry.get().hash);
-            }
-            Entry::Vacant(_) => {
-                let file_hash = FileHash {
-                    path: String::from(file),
-                    hash: String::from(hash),
-                };
+        let size_in_mb = (PathBuf::from(path).metadata().unwrap().len() as f64) / 1_000_000.0;
 
-                println!("FILE: {} \n\t CACHE: {}\n", &file_hash.path, &file_hash.hash);
+        if let Some(entry) = map.get(&hash) {
+            let dub_path = &entry.path;
 
-                map.insert(file_hash.hash.clone(), file_hash);
-            }
+            let file_hash = FileHash {
+                path: path.clone().parse().unwrap(),
+                hash: hash.clone(),
+                size: size_in_mb,
+                dub: Some(dub_path.to_owned()),
+            };
+
+            duplicates.push(file_hash);
+
+            println!("\x1b[0;33mWARNING: There is a duplicate file: {:?}\x1b[0;39m", path);
+            println!("\t CACHE: {}", entry.hash);
+        } else {
+            let file_hash = FileHash {
+                path: path.clone().parse().unwrap(),
+                hash: hash.clone(),
+                size: size_in_mb,
+                dub: None,
+            };
+
+            map.insert(hash.clone(), file_hash);
+            println!("FILE: {} \n\t CACHE: {}\n", path, hash);
         }
     }
 
@@ -76,7 +81,7 @@ fn main() {
     }
 
     let mut file = File::create(format!("{documents_path}\\traveler\\{timestamp}.json")).unwrap();
-    let json = serde_json::to_string(&duplicate).expect("TODO: panic message");
+    let json = serde_json::to_string(&duplicates).expect("TODO: panic message");
     file.write_all(json.as_bytes()).expect("TODO: panic message2");
 
     println!("{:?}", Instant::now() - start);
@@ -97,10 +102,7 @@ fn hash_file(path: &String) -> String {
         state.update(&buffer[..num_bytes]);
     }
 
-    // Get the hash value as a u64
     let hash_value = state.digest();
-
-    // Convert the hash value to a hexadecimal string
     let hash_value_hex = format!("{:016x}", hash_value);
 
     return hash_value_hex;
@@ -128,6 +130,7 @@ fn traverse_fs(initial_path: String, file_queue: &mut HashSet<String>) {
                         continue;
                     };
 
+                    //TODO: Everywhere path must be reduced to PathBuf
                     if entry_path.is_file() {
                         file_queue.insert(entry_path.to_str().unwrap().to_string());
                     } else {
